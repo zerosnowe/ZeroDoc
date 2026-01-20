@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="mdui-theme-light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeFrpTPCA</title>
+    
+    <!-- MDUI V2 CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/mdui@2.0.3/mdui.css">
+    <script src="https://unpkg.com/mdui@2.0.3/mdui.global.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+
+    <!-- Markdown & Syntax Highlighting -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markdown.min.js"></script>
+
+    <style>
+        :root { --mdui-color-primary: #0061a4; }
+        body { display: flex; height: 100vh; margin: 0; padding: 0; overflow: hidden; background-color: var(--mdui-color-surface-container-low); }
+        mdui-navigation-drawer { --mdui-navigation-drawer-width: 320px; background-color: var(--mdui-color-surface-container); height: 100vh; display: flex; flex-direction: column; }
+        .drawer-header { padding: 16px; flex-shrink: 0; background-color: var(--mdui-color-surface-container); z-index: 2; }
+        .tree-container { flex-grow: 1; overflow-y: auto; padding: 0 12px 24px 12px; scrollbar-width: thin; }
+        .tree-item { border-radius: 100px; margin-bottom: 4px; --mdui-list-item-padding-left: 16px; cursor: pointer; }
+        .tree-folder-children { padding-left: 20px; border-left: 1px solid var(--mdui-color-outline-variant); margin-left: 16px; }
+        .main-wrapper { flex-grow: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; position: relative; }
+        main { flex-grow: 1; overflow-y: auto; padding: 24px; scroll-behavior: smooth; }
+        .content-card { background-color: var(--mdui-color-surface); border-radius: 24px; padding: 40px; max-width: 960px; margin: 0 auto 40px auto; box-shadow: var(--mdui-elevation-level1); min-height: calc(100vh - 160px); }
+        
+        /* Markdown 样式优化 */
+        .prose h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 1.5rem; }
+        .prose p { line-height: 1.8; margin-bottom: 1.2rem; }
+        .prose pre { background: #1e1e1e; padding: 18px; border-radius: 12px; overflow-x: auto; margin: 20px 0; }
+        
+        /* 表格渲染优化样式 */
+        .prose table { width: 100%; border-collapse: collapse; margin: 24px 0; overflow-x: auto; display: block; border-radius: 8px; }
+        .prose th, .prose td { border: 1px solid var(--mdui-color-outline-variant); padding: 12px 16px; text-align: left; }
+        .prose th { background-color: var(--mdui-color-surface-container-high); font-weight: 600; }
+        .prose tr:nth-child(even) { background-color: var(--mdui-color-surface-container-lowest); }
+        .prose tr:hover { background-color: var(--mdui-color-secondary-container); color: var(--mdui-color-on-secondary-container); transition: background-color 0.2s; }
+
+        #loader { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 100; }
+        .hidden { display: none !important; }
+        .empty-view { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 400px; opacity: 0.8; }
+        .error-text { color: var(--mdui-color-error); max-width: 80%; text-align: center; word-break: break-all; }
+    </style>
+</head>
+<body>
+
+    <mdui-navigation-drawer id="drawer" open close-on-overlay-click>
+        <div class="drawer-header">
+            <div class="flex items-center mb-2">
+                <mdui-icon name="account_tree" class="mr-2 text-primary"></mdui-icon>
+                <span class="text-xl font-medium">Git 资源浏览</span>
+            </div>
+            <mdui-divider></mdui-divider>
+        </div>
+        <div id="fileTree" class="tree-container"></div>
+    </mdui-navigation-drawer>
+
+    <div class="main-wrapper">
+        <mdui-top-app-bar variant="center-aligned">
+            <mdui-button-icon icon="menu" id="menuBtn"></mdui-button-icon>
+            <mdui-top-app-bar-title id="appTitle">MeFrpTPCA</mdui-top-app-bar-title>
+            <mdui-button-icon icon="refresh" id="refreshBtn"></mdui-button-icon>
+            <mdui-button-icon icon="light_mode" id="themeBtn"></mdui-button-icon>
+        </mdui-top-app-bar>
+
+        <main id="mainScroll">
+            <div id="loader" class="hidden"><mdui-circular-progress></mdui-circular-progress></div>
+            <div class="content-card prose" id="markdownContent">
+                <div class="empty-view">
+                    <mdui-icon name="cloud_download" style="font-size: 80px;"></mdui-icon>
+                    <p class="mt-4 text-lg">正在同步仓库数据...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // ==========================================
+        // GitHub 仓库配置区域 (请务必检查此处)
+        // ==========================================
+        
+        // 1. 仓库拥有者名称
+        const REPO_OWNER = "//填写你的仓库拥有者名称";
+        
+        // 2. 仓库名称
+        const REPO_NAME = "//填写你的仓库名";
+        
+        // 3. 分支名称，根据你的实际情况修改
+        const BRANCH = "main";
+        
+        // 4. GitHub Token (重要提示：如果你的 Token 失效，页面会报错)
+        // 如果此 Token 无效，请重新生成并在此处替换。
+        const GITHUB_TOKEN = "//在此填入你的token";
+        
+        // ==========================================
+        // 配置区域结束
+        // ==========================================
+
+        const TREE_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/git/trees/${BRANCH}?recursive=1`;
+        const CONTENT_API_BASE = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
+        const RAW_BASE = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/`;
+
+        const fileTreeContainer = document.getElementById('fileTree');
+        const markdownContent = document.getElementById('markdownContent');
+        const loader = document.getElementById('loader');
+        const drawer = document.getElementById('drawer');
+        const appTitle = document.getElementById('appTitle');
+
+        marked.setOptions({
+            breaks: true,
+            gfm: true, // 启用 GitHub 风格的 Markdown (支持表格)
+            headerIds: true,
+            mangle: false
+        });
+
+        window.onload = () => {
+            fetchRepoTree();
+            document.getElementById('menuBtn').onclick = () => drawer.open = !drawer.open;
+            document.getElementById('refreshBtn').onclick = () => {
+                localStorage.removeItem('last_path');
+                fetchRepoTree();
+            };
+            document.getElementById('themeBtn').onclick = () => {
+                const isDark = document.documentElement.classList.toggle('mdui-theme-dark');
+                document.documentElement.classList.toggle('mdui-theme-light', !isDark);
+                document.getElementById('themeBtn').icon = isDark ? "light_mode" : "dark_mode";
+            };
+        };
+
+        function b64DecodeUnicode(str) {
+            try {
+                str = str.replace(/\s/g, '');
+                const binaryString = atob(str);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                return new TextDecoder('utf-8').decode(bytes);
+            } catch (e) {
+                console.error("Base64 解码失败:", e);
+                return "解析内容失败，可能文件格式不正确。";
+            }
+        }
+
+        async function fetchWithFallback(apiUrl, rawUrl) {
+            const headers = { 
+                "Accept": "application/vnd.github.v3+json",
+                "Cache-Control": "no-cache"
+            };
+            if (GITHUB_TOKEN) headers["Authorization"] = `token ${GITHUB_TOKEN}`;
+            
+            const timestamp = Date.now();
+            const finalApiUrl = `${apiUrl}${apiUrl.includes('?') ? '&' : '?'}cb=${timestamp}`;
+            const finalRawUrl = `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}cb=${timestamp}`;
+
+            try {
+                const response = await fetch(finalApiUrl, { headers });
+                if (response.status === 401) throw new Error("GitHub Token 无效或已过期");
+                if (response.status === 403) throw new Error("API 频率受限或权限不足");
+                if (response.ok) return { type: 'api', data: await response.json() };
+            } catch (e) {
+                console.warn("API 获取失败，尝试 RAW 模式:", e.message);
+            }
+
+            try {
+                const response = await fetch(finalRawUrl);
+                if (response.ok) return { type: 'raw', data: await response.text() };
+            } catch (e) {
+                throw new Error("无法连接到 GitHub 服务，请检查网络或配置。");
+            }
+            throw new Error("同步失败：文件不存在或无法访问。");
+        }
+
+        async function fetchRepoTree() {
+            showLoader(true);
+            try {
+                const headers = { "Accept": "application/vnd.github.v3+json" };
+                if (GITHUB_TOKEN) headers["Authorization"] = `token ${GITHUB_TOKEN}`;
+                
+                const res = await fetch(`${TREE_API}&cb=${Date.now()}`, { headers });
+                
+                if (res.status === 401) throw new Error("Token 验证失败，请在代码中检查 GITHUB_TOKEN 配置。");
+                if (res.status === 404) throw new Error("找不到仓库，请检查 REPO_OWNER 和 REPO_NAME。");
+                if (!res.ok) throw new Error(`GitHub 响应异常 (状态码: ${res.status})`);
+                
+                const data = await res.json();
+
+                if (data && data.tree) {
+                    const mdItems = data.tree.filter(item => item.path.toLowerCase().endsWith('.md') || item.type === 'tree');
+                    renderFileTree(mdItems);
+                    
+                    const lastPath = localStorage.getItem('last_path');
+                    const readmeNode = data.tree.find(item => item.path.toLowerCase() === 'readme.md');
+                    
+                    if (lastPath) loadFileContent(lastPath);
+                    else if (readmeNode) loadFileContent(readmeNode.path);
+                    else showDefaultView();
+                }
+            } catch (err) {
+                renderError(err.message);
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        function renderFileTree(items) {
+            const tree = {};
+            items.forEach(item => {
+                const parts = item.path.split('/');
+                let current = tree;
+                parts.forEach((part, i) => {
+                    if (i === parts.length - 1) current[part] = item;
+                    else {
+                        if (!current[part]) current[part] = { _isDir: true, _children: {} };
+                        current = current[part]._children;
+                    }
+                });
+            });
+            fileTreeContainer.innerHTML = '';
+            buildTreeUI(tree, fileTreeContainer);
+        }
+
+        function buildTreeUI(nodes, container) {
+            const sorted = Object.keys(nodes).sort((a, b) => {
+                if (a.toLowerCase() === 'readme.md') return -1;
+                if (b.toLowerCase() === 'readme.md') return 1;
+                const isDirA = nodes[a]._isDir || nodes[a].type === 'tree';
+                const isDirB = nodes[b]._isDir || nodes[b].type === 'tree';
+                if (isDirA && !isDirB) return -1;
+                if (!isDirA && isDirB) return 1;
+                return a.localeCompare(b);
+            });
+
+            sorted.forEach(key => {
+                const node = nodes[key];
+                if (node._isDir || node.type === 'tree') {
+                    const group = document.createElement('div');
+                    group.innerHTML = `<mdui-list-item class="tree-item" icon="folder_open" end-icon="keyboard_arrow_down">${key}</mdui-list-item><div class="tree-folder-children"></div>`;
+                    const header = group.querySelector('mdui-list-item');
+                    const children = group.querySelector('.tree-folder-children');
+                    header.onclick = () => {
+                        const isHidden = children.classList.toggle('hidden');
+                        header.endIcon = isHidden ? "keyboard_arrow_right" : "keyboard_arrow_down";
+                        header.icon = isHidden ? "folder" : "folder_open";
+                    };
+                    container.appendChild(group);
+                    buildTreeUI(node._children || {}, children);
+                } else {
+                    const item = document.createElement('mdui-list-item');
+                    item.className = "tree-item";
+                    item.innerHTML = `<mdui-icon slot="icon" name="description--outlined"></mdui-icon>${key.replace(/\.md$/i, '')}`;
+                    item.onclick = () => loadFileContent(node.path);
+                    if (localStorage.getItem('last_path') === node.path) item.setAttribute('active', '');
+                    container.appendChild(item);
+                }
+            });
+        }
+
+        async function loadFileContent(path) {
+            showLoader(true);
+            try {
+                const contentApi = CONTENT_API_BASE + path;
+                const rawUrl = RAW_BASE + path;
+                const result = await fetchWithFallback(contentApi, rawUrl);
+                let content = result.type === 'api' ? b64DecodeUnicode(result.data.content) : result.data;
+                
+                markdownContent.innerHTML = marked.parse(content);
+                appTitle.innerText = path.split('/').pop().replace(/\.md$/i, '');
+                localStorage.setItem('last_path', path);
+                
+                document.querySelectorAll('.tree-item').forEach(el => el.removeAttribute('active'));
+                const items = document.querySelectorAll('.tree-item');
+                const name = path.split('/').pop().replace(/\.md$/i, '');
+                for (let el of items) { if (el.textContent.trim() === name) { el.setAttribute('active', ''); break; } }
+                
+                Prism.highlightAllUnder(markdownContent);
+                document.getElementById('mainScroll').scrollTop = 0;
+                if (window.innerWidth < 1024) drawer.open = false;
+            } catch (err) {
+                mdui.snackbar({ message: `读取文件失败: ${err.message}` });
+            } finally {
+                showLoader(false);
+            }
+        }
+
+        function showLoader(show) { loader.classList.toggle('hidden', !show); markdownContent.style.opacity = show ? "0.3" : "1"; }
+        
+        function renderError(msg) { 
+            markdownContent.innerHTML = `
+                <div class="empty-view">
+                    <mdui-icon name="error_outline" style="font-size: 80px; color: var(--mdui-color-error);"></mdui-icon>
+                    <p class="mt-4 text-lg">加载过程中断</p>
+                    <p class="error-text mt-2">${msg}</p>
+                    <mdui-button variant="tonal" class="mt-6" onclick="location.reload()">重新尝试</mdui-button>
+                </div>`; 
+        }
+
+        function showDefaultView() { 
+            markdownContent.innerHTML = `
+                <div class="empty-view">
+                    <mdui-icon name="auto_stories" style="font-size: 80px;"></mdui-icon>
+                    <p class="mt-4 text-lg">文档库已连接，请在左侧选择文件。</p>
+                </div>`; 
+        }
+    </script>
+</body>
+</html>
