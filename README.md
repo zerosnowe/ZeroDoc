@@ -1,6 +1,6 @@
 # ZeroDoc
 
-## <img title="" src="https://github.com/zerosnowe/ZeroDoc/blob/main/repo-image/Vector.png?raw=true" alt="" data-align="center" style="zoom:50%;">                                                                         ZeroDoc文档系统
+## <img title="" src="https://github.com/zerosnowe/ZeroDoc/blob/main/repo-image/Vector.png?raw=true" alt="" data-align="center" style="zoom:25%;">
 
 ### **⭐特点介绍**
 
